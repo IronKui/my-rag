@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# 配置文件（包含 API Key）
+.env
+
+# 向量数据库（数据太大）
+chroma_db/
+
+# 本地模型（太大）
+models/
+
+# 日志
+*.log
+
+# IDE
+.vscode/
+.idea/

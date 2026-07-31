@@ -1,0 +1,26 @@
+# FastAPI
+fastapi
+uvicorn[standard]
+python-multipart
+
+# LangChain
+langchain
+langchain-community
+langchain-openai
+
+# 向量数据库
+chromadb
+langchain-chroma
+# Embedding模型
+sentence-transformers
+
+# 文档解析
+pypdf
+python-docx
+
+# 环境变量
+python-dotenv
+
+# OCR（图片识别）
+pytesseract
+Pillow
