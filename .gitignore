@@ -20,3 +20,8 @@ models/
 # IDE
 .vscode/
 .idea/
+
+# 测试文件
+*.pdf
+*.docx
+*.xlsx
