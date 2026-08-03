@@ -1,5 +1,6 @@
 import logging
 import sys
+from pathlib import Path
 
 def setup_logger(name:str = None):
     """
@@ -23,7 +24,8 @@ def setup_logger(name:str = None):
     logger.addHandler(console_handler)
 
     #到文件
-    file_handler = logging.FileHandler('app.log',encoding='utf-8')
+    BASE_DIR = Path(__file__).resolve().parent.parent  # core/ 的上级 = backend/
+    file_handler = logging.FileHandler(BASE_DIR / 'app.log', encoding='utf-8')
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     return logger
