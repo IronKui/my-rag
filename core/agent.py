@@ -19,6 +19,21 @@ config ={
         "thread_id":"1"
     }
 }
+#新增，供给app.py调用的函数方法：
+def agent_chat(question:str,session_id:str = "default")->str:
+    '''
+    接收用户的问题，记录id，返回大模型的回复
+    '''
+    #把session_id映射到进程id
+    config = {
+        "configurable":{
+        "thread_id":session_id
+        }
+    }
+    #获取模型回复
+    response = agent.invoke({"messages": [{"role": "user", "content": question}]}, config=config)
+    return response['messages'][-1].content
+
 if __name__ == "__main__":
     while True:
         user_input = input("\n你：").strip()
