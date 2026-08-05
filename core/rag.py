@@ -37,9 +37,9 @@ def load_file(filepath):
     #     docs = txt_loder.load() #返回List列表(Document对象)
     #     return docs
     if suffixes == '.txt':
-        loder = TextLoader(filepath)
+        loder = TextLoader(filepath, encoding='utf-8')
     elif suffixes == '.md':
-        loder = UnstructuredMarkdownLoader(filepath)
+        loder = TextLoader(filepath, encoding='utf-8')
     elif suffixes == '.docx':
         loder = Docx2txtLoader(filepath)
     elif suffixes == '.json':
@@ -145,5 +145,10 @@ def search_knowledge_base(query:str, k: int = 3) -> list:
 
     return results
 
-
+def process_and_store(filepath: str) -> int:
+  """加载文件 → 切分 → 入库，返回文本块数量"""
+  docs = load_file(filepath)
+  chunks = splitter_documents(docs)
+  store_to_vectorstore(chunks)
+  return len(chunks)
 

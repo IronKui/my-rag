@@ -3,7 +3,6 @@ import uuid
 
 from langchain.chat_models import init_chat_model
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 
 from core.rag import search_knowledge_base
