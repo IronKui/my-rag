@@ -7,6 +7,12 @@ python-multipart
 langchain
 langchain-community
 langchain-openai
+langchain-chroma
+langgraph
+rich
+
+# 数据校验
+pydantic
 
 # 向量数据库
 chromadb

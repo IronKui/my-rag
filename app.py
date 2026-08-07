@@ -16,7 +16,7 @@ app.add_middleware(
 os.makedirs("uploads", exist_ok=True)
 @app.post("/api/chat",response_model=ChatResponse)
 async def chat(data:ChatRequest):
-    response = agent_chat(data.question,data.session_id)
+    response = agent_chat(data.question, data.mode, data.session_id)
     return {
         "code": 0,
         "message": "成功",

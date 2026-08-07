@@ -68,7 +68,7 @@ PROMPT_MAP = {
 }
 
 
-def get_prompt(mode: str = "learning", character: str = "") -> str:
+def get_prompt(mode: str = "default", character: str = "") -> str:
     """根据模式获取对应的系统 Prompt
 
     Args:
@@ -79,5 +79,5 @@ def get_prompt(mode: str = "learning", character: str = "") -> str:
     # 角色扮演模式需要填入角色名
     if mode == "roleplay":
         # 没有指定角色时兜底
-        return prompt.format(character=character or "神秘角色")
+        return prompt.format(character=character or "专业的老师")
     return prompt

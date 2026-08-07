@@ -29,6 +29,28 @@
             font-weight: bold;
             text-align: center;
         }
+        .mode-bar {
+            display: flex;
+            gap: 8px;
+            padding: 8px 16px;
+            background: #f0f4ff;
+            border-bottom: 1px solid #eee;
+        }
+        .mode-btn {
+            padding: 6px 16px;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            color: #555;
+            transition: all 0.2s;
+        }
+        .mode-btn.active {
+            background: #4a90d9;
+            color: #fff;
+            border-color: #4a90d9;
+        }
         .messages {
             flex: 1;
             overflow-y: auto;
@@ -130,6 +152,14 @@
     <div class="chat-container">
         <div class="header">AI 知识库问答</div>
 
+        <!-- 模式切换 -->
+        <div class="mode-bar">
+            <button class="mode-btn active" onclick="switchMode('default', this)">默认</button>
+            <button class="mode-btn" onclick="switchMode('learning', this)">学习</button>
+            <button class="mode-btn" onclick="switchMode('interview', this)">面试</button>
+            <button class="mode-btn" onclick="switchMode('roleplay', this)">角色扮演</button>
+        </div>
+
         <!-- 聊天记录区 -->
         <div class="messages" id="messages"></div>
 
@@ -154,6 +184,15 @@
         const BASE_URL = "http://localhost:8000";   // 后端地址
 
         let selectedFile = null;   // 前端暂存选中的文件（未发送前只是预览）
+        let currentMode = "default";   // 当前模式
+
+        // ====== 模式切换 ======
+        function switchMode(mode, btn) {
+            currentMode = mode;
+            // 切换按钮高亮
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        }
 
         // ====== 工具函数 ======
         function addMessage(role, content) {
@@ -244,7 +283,7 @@
                     const res = await fetch(BASE_URL + '/api/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ question: question, session_id: SESSION_ID })
+                        body: JSON.stringify({ question: question, mode: currentMode, session_id: SESSION_ID })
                     });
                     const data = await res.json();
                     removeLoading();
