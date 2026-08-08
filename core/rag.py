@@ -13,6 +13,7 @@ os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # ========== 全局变量（定义在这里） ==========
 vectorstore = None
+_embeddings = None   # Embedding 模型缓存
 
 # 自动创建当前模块的 logger
 logger = setup_logger(__name__)
@@ -79,7 +80,9 @@ def splitter_documents(docs):
 #向量化
 def get_embeddings():
     """获取 Embedding 模型（单例模式，只加载一次）"""
-
+    global _embeddings
+    if _embeddings is not None:
+        return _embeddings
     local_model_path = "./models/bge-small-zh-v1.5"
 
     # 检查本地模型是否存在
@@ -100,16 +103,15 @@ def get_embeddings():
 
     # 如果本地不存在或文件不完整，从镜像站下载
     # 设置镜像站环境变量
-    os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-
     logger.info("从 Hugging Face 镜像站下载模型...")
-
-    # 用模型名直接加载（会自动下载并缓存到 .cache/huggingface/）
-    return HuggingFaceEmbeddings(
-        model_name="BAAI/bge-small-zh-v1.5",
-        model_kwargs={'device': 'cpu'},
-        encode_kwargs={'normalize_embeddings': True}
-    )
+    os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+    if _embeddings is None:
+        _embeddings = HuggingFaceEmbeddings(
+            model_name="BAAI/bge-small-zh-v1.5",
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
+        )
+    return _embeddings
 def store_to_vectorstore(chuns):
     """
     存入向量数据库
@@ -134,8 +136,17 @@ def search_knowledge_base(query:str, k: int = 3) -> list:
     """
     #先判断在这里有没有vectorstore
     global vectorstore
+    if vectorstore is None :
+        # 尝试从磁盘加载已有向量库（重启后恢复）
+        vectorstore = Chroma(
+            collection_name="mvp_knowledge",
+            embedding_function=get_embeddings(),
+            persist_directory="./chroma_db"
+        )
+        logger.info("已从磁盘加载已有向量库")
+
     if vectorstore is None:
-        logger.info(f"向量库为空，文件不存在，请先存入")
+        logger.info("向量库为空，文件不存在，请先存入")
         return []
 
     #检索
