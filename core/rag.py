@@ -1,11 +1,14 @@
 from pathlib import Path
 from langchain_chroma import Chroma
-
+from datetime import datetime
+import hashlib
+import uuid
 from langchain_community.document_loaders import TextLoader, UnstructuredMarkdownLoader, Docx2txtLoader, JSONLoader, \
     PyPDFLoader
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from core.index_manager import get_file_by_hash, get_file_by_source, auto_rename, add_file_to_index
 from core.logger import setup_logger
 
 import os
@@ -19,7 +22,7 @@ _embeddings = None   # Embedding 模型缓存
 logger = setup_logger(__name__)
 
 # 加载 文档:
-def load_file(filepath):
+def load_file(filepath,user_id="default"):
     """
     加载文档，将文档处理为list字符串列表
     """
@@ -52,6 +55,25 @@ def load_file(filepath):
     docs = loder.load()
     #todo ：添加一次性读取多个文件的内容，读File Directory
 
+    #打标签，做溯源和去重
+    with open(filepath,"rb") as f:
+        file_hash = hashlib.sha256(f.read()).hexdigest() #文件内容哈希
+
+    #去重
+    final_name =remove_duplicates(file_hash,filepath,user_id)
+    if final_name is None:
+        return None #重复跳过
+
+    doc_id = str(uuid.uuid4())  # 一次上传共用一个文档ID
+
+    for doc in docs:
+        doc.metadata["source"] = final_name  # 文件名
+        doc.metadata["file_hash"] = file_hash  # 内容哈希
+        doc.metadata["upload_time"] = datetime.now().isoformat()  # 上传时间
+        doc.metadata["doc_id"] = doc_id  # 文档唯一ID
+        doc.metadata["user_id"] = user_id
+
+
     logger.info(f"加载完毕")
     return docs
 
@@ -59,6 +81,22 @@ def load_image(filepath):
     """读取图片，返回 Document 列表"""
     # TODO: 用 pytesseract 或 多模态大模型
     raise NotImplementedError("图片OCR功能开发中")
+
+def remove_duplicates(file_hash,filepath, user_id):
+    '''去重，返回最终文件名；重复返回 None'''
+    #获取文件内容哈希
+
+    #硬重复，看账号索引库里有无同hash
+    if get_file_by_hash(user_id,file_hash):
+        logger.info(f"文件{filepath}内容已存在，跳过入库")
+        return  None
+    #同名文件进行重命名：
+    path =Path(filepath)
+    source = path.name
+    if get_file_by_source(user_id,source):
+        logger.info(f"存在同名文件，进行重命名")
+        return auto_rename(source)
+    return source
 
 #递归字符文本切分器
 def splitter_documents(docs):
@@ -112,7 +150,7 @@ def get_embeddings():
             encode_kwargs={'normalize_embeddings': True}
         )
     return _embeddings
-def store_to_vectorstore(chuns):
+def store_to_vectorstore(chunks,user_id="default"):
     """
     存入向量数据库
     """
@@ -125,11 +163,21 @@ def store_to_vectorstore(chuns):
             embedding_function=get_embeddings(),
             persist_directory="./chroma_db"
         )
-    vectorstore.add_documents(chuns)
+    vectorstore.add_documents(chunks)
+    #更新索引
+    first = chunks[0]
+    add_file_to_index(user_id, first.metadata["file_hash"], {
+        "filename": first.metadata["source"],
+        "doc_id": first.metadata["doc_id"],
+        "file_hash": first.metadata["file_hash"],
+        "upload_time": first.metadata["upload_time"],
+        "status": "active"
+    })
 
     logger.info(f"文件向量化存入完毕")
+    return
 
-def search_knowledge_base(query:str, k: int = 3) -> list:
+def search_knowledge_base(query:str, k: int = 3,user_id ="default") -> list:
     """
     从向量库中检索与 query 最相关的 k 个文本块
     返回 List[Document]
@@ -151,15 +199,17 @@ def search_knowledge_base(query:str, k: int = 3) -> list:
 
     #检索
     logger.info(f"检索问题：{query[:50]}...")
-    results = vectorstore.similarity_search(query, k=k)
+    results = vectorstore.similarity_search(query, k=k,filter={"user_id":user_id})
     logger.info(f"检索到了{len(results)}个相关的文本块")
 
     return results
 
-def process_and_store(filepath: str) -> int:
+def process_and_store(filepath: str,user_id="default") -> int:
   """加载文件 → 切分 → 入库，返回文本块数量"""
-  docs = load_file(filepath)
+  docs = load_file(filepath,user_id)
+  if docs is None:
+      return 0, "duplicate"  # 重复，跳过
   chunks = splitter_documents(docs)
-  store_to_vectorstore(chunks)
-  return len(chunks)
+  store_to_vectorstore(chunks,user_id)
+  return len(chunks),"ok"
 

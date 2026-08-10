@@ -21,29 +21,40 @@ model = init_chat_model(
 quiz_cache: dict[str, str] = {}
 
 
-@tool
-def retrieve_tool(query: str) -> str:
+
+def make_retrieve_tool(user_id:str):
     """
-    从用户已上传的知识库中检索相关内容，用于回答问题。
-    当用户询问知识库中的内容时，请优先调用此工具。
+    创建检索工具工厂，调用检索工具时闭包传入user_id
 
     Args:
-        query: 用户提出的问题，将用于向量检索
-
-    Returns:
-        检索到的相关文本片段
+        user_id: 用户账号信息
     """
-    logger.info(f"[retrieve_tool] 检索：{query[:50]}...")
-    docs = search_knowledge_base(query, k=3)
 
-    if not docs:
-        return "知识库中未检索到相关内容，请提醒用户先上传文件。"
+    @tool
+    def retrieve_tool(query: str, ) -> str:
+        """
+        从用户已上传的知识库中检索相关内容，用于回答问题。
+        当用户询问知识库中的内容时，请优先调用此工具。
 
-    result = "\n\n".join(
-        f"[参考片段{i+1}] {doc.page_content}"
-        for i, doc in enumerate(docs)
-    )
-    return result
+        Args:
+            query: 用户提出的问题，将用于向量检索
+
+        Returns:
+            检索到的相关文本片段
+        """
+        logger.info(f"[retrieve_tool] 检索：{query[:50]}...")
+        docs = search_knowledge_base(query, k=3,user_id=user_id )
+
+        if not docs:
+            return "知识库中未检索到相关内容，请提醒用户先上传文件。"
+
+        result = "\n\n".join(
+            f"[参考片段{i + 1}]出自《{doc.metadata.get('source', '未知')}》：{doc.page_content}"
+            for i, doc in enumerate(docs)
+        )
+        return result
+    return retrieve_tool
+
 
 
 @tool
