@@ -4,7 +4,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from rich import print as rprint
 
 from core.prompts import DEFAULT_PROMPT, get_prompt
-from core.tools import model,  make_retrieve_tool, quiz_tool, evaluate_tool
+from core.tools import model,  make_retrieve_tool, make_quiz_tool, evaluate_tool
 
 
 checkpointer = InMemorySaver()
@@ -19,7 +19,7 @@ def create_agent_by_mode(mode:str,user_id:str):
     system_prompt = get_prompt(mode)
     return create_agent(
         model =model,
-        tools=[make_retrieve_tool(user_id),quiz_tool,evaluate_tool],
+        tools=[make_retrieve_tool(user_id),make_quiz_tool(user_id),evaluate_tool],
         system_prompt= system_prompt,
         checkpointer = checkpointer
     )

@@ -56,65 +56,74 @@ def make_retrieve_tool(user_id:str):
     return retrieve_tool
 
 
-
-@tool
-def quiz_tool(topic: str = "") -> str:
+def make_quiz_tool(user_id:str) ->str:
     """
-    根据知识库内容，出一道题目来测试用户掌握程度。
-    用户说"出题""考考我""来道题"时调用此工具。
+    创建出题工具工厂
+
 
     Args:
-        topic: 出题的主题或范围，如果为空则从知识库随机抽取内容出题
-
-    Returns:
-        一道题目（不含答案），附带 question_id 供后续评判使用
+        user_id: 用户账号信息
     """
-    logger.info(f"[quiz_tool] 出题，主题：{topic if topic else '随机'}")
 
-    # 1. 检索知识库相关内容
-    search_query = topic if topic else "关键概念 知识点"
-    docs = search_knowledge_base(search_query, k=3)
+    @tool
+    def quiz_tool(topic: str = "") -> str:
+        """
+        根据知识库内容，出一道题目来测试用户掌握程度。
+        用户说"出题""考考我""来道题"时调用此工具。
 
-    if not docs:
-        return "知识库为空，请提醒用户先上传文件后再出题。"
+        Args:
+            topic: 出题的主题或范围，如果为空则从知识库随机抽取内容出题
 
-    reference = "\n".join(doc.page_content for doc in docs)
+        Returns:
+            一道题目（不含答案），附带 question_id 供后续评判使用
+        """
+        logger.info(f"[quiz_tool] 出题，主题：{topic if topic else '随机'}")
 
-    # 2. 让 大模型 根据检索内容出题（附带标准答案）
-    prompt = f"""你是一名严格的出题老师。请根据以下知识库内容出一道题目，难度适中。
+        # 1. 检索知识库相关内容
+        search_query = topic if topic else "关键概念 知识点"
+        docs = search_knowledge_base(search_query, k=3,user_id=user_id)
 
-【知识库内容】
-{reference}
+        if not docs:
+            return "知识库为空，请提醒用户先上传文件后再出题。"
 
-【要求】
-1. 根据上述内容出一道简答题（不是选择题）
-2. 同时给出该题的标准答案（不要告诉用户）
-3. 按以下格式返回（严格按格式）：
+        reference = "\n".join(doc.page_content for doc in docs)
 
-【题目】
-（此处写题目）
+        # 2. 让 大模型 根据检索内容出题（附带标准答案）
+        prompt = f"""你是一名严格的出题老师。请根据以下知识库内容出一道题目，难度适中。
 
-【标准答案】
-（此处写标准答案）"""
+    【知识库内容】
+    {reference}
 
-    response = model.invoke(prompt)
-    content = response.content.strip()
+    【要求】
+    1. 根据上述内容出一道简答题（不是选择题）
+    2. 同时给出该题的标准答案（不要告诉用户）
+    3. 按以下格式返回（严格按格式）：
 
-    # 3. 解析出题目和标准答案
-    if "【题目】" in content and "【标准答案】" in content:
-        question_part = content.split("【题目】")[1].split("【标准答案】")[0].strip()
-        answer_part = content.split("【标准答案】")[1].strip()
-    else:
-        # 格式不对，兜底
-        question_part = content
-        answer_part = "暂无标准答案"
+    【题目】
+    （此处写题目）
 
-    # 4. 存入缓存，返回题目
-    question_id = str(uuid.uuid4())[:8]
-    quiz_cache[question_id] = answer_part
-    logger.info(f"[quiz_tool] 题目已生成，ID：{question_id}")
+    【标准答案】
+    （此处写标准答案）"""
 
-    return f"题目ID：{question_id}\n\n{question_part}"
+        response = model.invoke(prompt)
+        content = response.content.strip()
+
+        # 3. 解析出题目和标准答案
+        if "【题目】" in content and "【标准答案】" in content:
+            question_part = content.split("【题目】")[1].split("【标准答案】")[0].strip()
+            answer_part = content.split("【标准答案】")[1].strip()
+        else:
+            # 格式不对，兜底
+            question_part = content
+            answer_part = "暂无标准答案"
+
+        # 4. 存入缓存，返回题目
+        question_id = str(uuid.uuid4())[:8]
+        quiz_cache[question_id] = answer_part
+        logger.info(f"[quiz_tool] 题目已生成，ID：{question_id}")
+
+        return f"题目ID：{question_id}\n\n{question_part}"
+    return quiz_tool
 
 
 @tool

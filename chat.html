@@ -264,6 +264,8 @@
                     removeLoading();
                     if (upRes.code === 0) {
                         addMessage('assistant', `✅ ${upRes.message}（${upRes.data.chunk_count} 个文本块）`);
+                    } else if (upRes.code === 1) {
+                        addMessage('assistant', `ℹ️ ${upRes.message}`);   // 已存在 → 提示，不是失败
                     } else {
                         addMessage('error', `上传失败：${upRes.message}`);
                         return;
