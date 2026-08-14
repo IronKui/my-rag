@@ -1,13 +1,14 @@
 
 from langchain.agents import create_agent
-from langgraph.checkpoint.memory import InMemorySaver
+
+from langgraph.checkpoint.sqlite import SqliteSaver
 from rich import print as rprint
 
 from core.prompts import DEFAULT_PROMPT, get_prompt
 from core.tools import model,  make_retrieve_tool, make_quiz_tool, evaluate_tool
 
-
-checkpointer = InMemorySaver()
+_saver_ctx = SqliteSaver.from_conn_string("checkpoints.sqlite")
+checkpointer = _saver_ctx.__enter__()
 
 # agent = create_agent(
 #     model= model,
@@ -59,7 +60,7 @@ if __name__ == "__main__":
         try:
             agent = create_agent_by_mode("default","default")
             response = agent.invoke({"messages": [{"role": "user", "content": user_input}]},config={"configurable":{"thread_id":"1"}})
-            rprint(f"回复：{response}")
+            rprint(f"回复：{response['messages'][-1].content}")
         except Exception as e:
             print(e)
 

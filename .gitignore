@@ -29,3 +29,7 @@ models/
 *.docx
 *.xlsx
 uploads/
+
+# 对话记忆（SQLite，运行时数据）
+checkpoints.sqlite
+checkpoints.sqlite-*
