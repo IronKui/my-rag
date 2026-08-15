@@ -1,6 +1,7 @@
 from pathlib import Path
 from langchain_chroma import Chroma
 from datetime import datetime
+
 import hashlib
 import uuid
 from langchain_community.document_loaders import TextLoader, UnstructuredMarkdownLoader, Docx2txtLoader, JSONLoader, \
@@ -11,12 +12,32 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from core.index_manager import get_file_by_hash, get_file_by_source, auto_rename, add_file_to_index
 from core.logger import setup_logger
 
+import threading
+
+
+
 import os
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # ========== 全局变量（定义在这里） ==========
 vectorstore = None
+_vectorstore_lock = threading.Lock()
 _embeddings = None   # Embedding 模型缓存
+
+
+def get_vectorstore():
+    """线程安全获取 vectorstore（双重检查锁）"""
+    global vectorstore
+    if vectorstore is not None:
+        return vectorstore
+    with _vectorstore_lock:
+        if vectorstore is None:
+            vectorstore = Chroma(
+                collection_name="mvp_knowledge",
+                embedding_function=get_embeddings(),
+                persist_directory="./chroma_db"
+            )
+    return vectorstore
 
 # 自动创建当前模块的 logger
 logger = setup_logger(__name__)
@@ -157,13 +178,8 @@ def store_to_vectorstore(chunks,user_id="default"):
     logger.info(f"进行向量化")
     global vectorstore
     #如果没有向量库就创建一个
-    if vectorstore is None:
-        vectorstore = Chroma(
-            collection_name="mvp_knowledge",
-            embedding_function=get_embeddings(),
-            persist_directory="./chroma_db"
-        )
-    vectorstore.add_documents(chunks)
+    vs = get_vectorstore()
+    vs.add_documents(chunks)
     #更新索引
     first = chunks[0]
     add_file_to_index(user_id, first.metadata["file_hash"], {
@@ -182,24 +198,15 @@ def search_knowledge_base(query:str, k: int = 3,user_id ="default") -> list:
     从向量库中检索与 query 最相关的 k 个文本块
     返回 List[Document]
     """
+    vs = get_vectorstore()
     #先判断在这里有没有vectorstore
-    global vectorstore
-    if vectorstore is None :
-        # 尝试从磁盘加载已有向量库（重启后恢复）
-        vectorstore = Chroma(
-            collection_name="mvp_knowledge",
-            embedding_function=get_embeddings(),
-            persist_directory="./chroma_db"
-        )
-        logger.info("已从磁盘加载已有向量库")
-
-    if vectorstore is None:
-        logger.info("向量库为空，文件不存在，请先存入")
+    count = vs.get(where={"user_id":user_id})["ids"]
+    if not count:
+        logger.info(f"用户{user_id}的知识库为空")
         return []
-
     #检索
     logger.info(f"检索问题：{query[:50]}...")
-    results = vectorstore.similarity_search(query, k=k,filter={"user_id":user_id})
+    results = vs.similarity_search(query, k=k,filter={"user_id":user_id})
     logger.info(f"检索到了{len(results)}个相关的文本块")
 
     return results

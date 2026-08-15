@@ -4,6 +4,7 @@ from langchain.agents import create_agent
 from langgraph.checkpoint.sqlite import SqliteSaver
 from rich import print as rprint
 
+from core.middleware import build_context_middleware
 from core.prompts import DEFAULT_PROMPT, get_prompt
 from core.tools import model,  make_retrieve_tool, make_quiz_tool, evaluate_tool
 
@@ -20,8 +21,14 @@ def create_agent_by_mode(mode:str,user_id:str):
     system_prompt = get_prompt(mode)
     return create_agent(
         model =model,
-        tools=[make_retrieve_tool(user_id),make_quiz_tool(user_id),evaluate_tool],
+        tools=[make_retrieve_tool(user_id),
+               make_quiz_tool(user_id),
+               evaluate_tool
+               ],
         system_prompt= system_prompt,
+        middleware=[
+            build_context_middleware(4000,2000)
+        ],
         checkpointer = checkpointer
     )
 #agent字典,创建空字典，对话切换模式的时候可以再创建新的agent
