@@ -7,8 +7,10 @@ from rich import print as rprint
 from core.middleware import build_context_middleware
 from core.prompts import DEFAULT_PROMPT, get_prompt
 from core.tools import model,  make_retrieve_tool, make_quiz_tool, evaluate_tool
+from pathlib import Path
 
-_saver_ctx = SqliteSaver.from_conn_string("checkpoints.sqlite")
+BASE_DIR = Path(__file__).resolve().parent.parent
+_saver_ctx = SqliteSaver.from_conn_string(str(BASE_DIR/"data/checkpoints.sqlite"))
 checkpointer = _saver_ctx.__enter__()
 
 # agent = create_agent(

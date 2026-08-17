@@ -9,7 +9,9 @@ import os
 from pathlib import Path
 from datetime import datetime
 
-INDEX_DIR = Path("./data/indexes")
+
+BASE_DIR =Path(__file__).resolve().parent.parent
+INDEX_DIR = BASE_DIR/"data/indexes"
 INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
 

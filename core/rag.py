@@ -14,10 +14,10 @@ from core.logger import setup_logger
 
 import threading
 
-
-
 import os
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 # ========== 全局变量（定义在这里） ==========
 vectorstore = None
@@ -35,7 +35,7 @@ def get_vectorstore():
             vectorstore = Chroma(
                 collection_name="mvp_knowledge",
                 embedding_function=get_embeddings(),
-                persist_directory="./chroma_db"
+                persist_directory=str(BASE_DIR / "chroma_db")
             )
     return vectorstore
 
@@ -142,7 +142,7 @@ def get_embeddings():
     global _embeddings
     if _embeddings is not None:
         return _embeddings
-    local_model_path = "./models/bge-small-zh-v1.5"
+    local_model_path = str(BASE_DIR / "models/bge-small-zh-v1.5")
 
     # 检查本地模型是否存在
     if os.path.exists(local_model_path):

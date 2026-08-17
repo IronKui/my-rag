@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Literal
-#请求模型
+ # ====== agent请求模型 ======
 class ChatRequest(BaseModel):
     question:str
     mode: Literal["default", "learning", "interview", "roleplay"] = "default"
@@ -10,4 +10,15 @@ class ChatResponse(BaseModel):
     code:int = 0
     message:str ="成功"
     data:dict
+
+  # ====== 账号请求模型 ======
+class RegisterRequest(BaseModel):
+  username: str
+  password: str
+  nickname: str = ""
+
+class LoginRequest(BaseModel):
+  username: str
+  password: str
+
 
