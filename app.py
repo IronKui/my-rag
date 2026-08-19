@@ -1,11 +1,13 @@
 import os
+import uuid
 from fastapi import FastAPI,UploadFile,Form
 from core.agent import agent_chat
 from core.rag import process_and_store
 from schemas import ChatRequest,ChatResponse
 from fastapi.middleware.cors import CORSMiddleware
 from core.auth_service import register,login,get_current_user
-from schemas import RegisterRequest,LoginRequest
+from core.user_repository import create_session, get_sessions_by_user, get_session_by_id, update_session_time, delete_session, save_message, get_messages_by_session, rename_session
+from schemas import RegisterRequest,LoginRequest,RenameRequest
 from contextlib import asynccontextmanager
 from core.user_repository import init_db
 from fastapi import Depends
@@ -30,11 +32,26 @@ os.makedirs("uploads", exist_ok=True)
 
 @app.post("/api/chat",response_model=ChatResponse)
 async def chat(data:ChatRequest, user_uuid: str = Depends(get_current_user)):
-    response = agent_chat(data.question, data.mode, data.session_id,user_uuid)
+    # 延迟创建：session_id 为空或 "default" 时，创建新会话（用第一条消息命名）
+    if not data.session_id or data.session_id == "default":
+        new_session_id = f"sess_{uuid.uuid4().hex[:12]}"
+        create_session(user_uuid, new_session_id, data.question)
+        session_id = new_session_id
+    else:
+        session_id = data.session_id
+        # 校验会话归属 + 更新时间
+        if not get_session_by_id(user_uuid, session_id):
+            return {"code": 1, "message": "会话不存在或无权限", "data": None}
+        update_session_time(user_uuid, session_id)
+
+    response = agent_chat(data.question, data.mode, session_id, user_uuid)
+    # 保存完整对话历史（用户可见，不受上下文压缩影响）
+    save_message(user_uuid, session_id, "user", data.question)
+    save_message(user_uuid, session_id, "assistant", response)
     return {
         "code": 0,
         "message": "成功",
-        "data": {"answer": response}
+        "data": {"answer": response, "session_id": session_id}
     }
 
 @app.post("/api/upload")
@@ -83,3 +100,51 @@ def api_me(user_uuid: str = Depends(get_current_user)):
         "message": "认证成功",
         "data": {"user_uuid": user_uuid}
     }
+
+@app.get("/api/sessions")
+def api_sessions(user_uuid: str = Depends(get_current_user)):
+    """获取当前用户的会话列表，按更新时间倒序"""
+    sessions = get_sessions_by_user(user_uuid)
+    return {
+        "code": 0,
+        "message": "成功",
+        "data": [
+            {
+                "session_id": s["session_id"],
+                "session_name": s["session_name"],
+                "created_at": s["created_at"],
+                "updated_at": s["updated_at"]
+            }
+            for s in sessions
+        ]
+    }
+
+@app.get("/api/sessions/{session_id}/history")
+def api_session_history(session_id: str, user_uuid: str = Depends(get_current_user)):
+    """获取某会话的历史消息（从 messages 表读完整历史，不受压缩影响）"""
+    # 校验会话归属
+    if not get_session_by_id(user_uuid, session_id):
+        return {"code": 1, "message": "会话不存在或无权限", "data": None}
+    messages = get_messages_by_session(user_uuid, session_id)
+    history = [{"role": m["role"], "content": m["content"]} for m in messages]
+    return {
+        "code": 0,
+        "message": "成功",
+        "data": {"messages": history}
+    }
+
+@app.put("/api/sessions/{session_id}")
+def api_rename_session(session_id: str, data: RenameRequest, user_uuid: str = Depends(get_current_user)):
+    """重命名会话"""
+    if not get_session_by_id(user_uuid, session_id):
+        return {"code": 1, "message": "会话不存在或无权限", "data": None}
+    rename_session(user_uuid, session_id, data.session_name)
+    return {"code": 0, "message": "会话已重命名", "data": None}
+
+@app.delete("/api/sessions/{session_id}")
+def api_delete_session(session_id: str, user_uuid: str = Depends(get_current_user)):
+    """删除会话"""
+    if not get_session_by_id(user_uuid, session_id):
+        return {"code": 1, "message": "会话不存在或无权限", "data": None}
+    delete_session(user_uuid, session_id)
+    return {"code": 0, "message": "会话已删除", "data": None}

@@ -20,4 +20,7 @@ class LoginRequest(BaseModel):
   username: str
   password: str
 
+class RenameRequest(BaseModel):
+  session_name: str
+
 

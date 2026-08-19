@@ -170,6 +170,17 @@
             background: var(--primary-light);
             color: var(--primary);
         }
+        .session-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .session-menu {
+            opacity: 0;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 16px;
+            line-height: 1;
+        }
+        .session-item:hover .session-menu { opacity: 1; }
+        .session-menu:hover { background: #e2e8f0; }
         .file-item .file-icon { margin-right: 8px; }
         .file-item .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .file-item .delete-btn {
@@ -499,6 +510,7 @@
         let selectedFile = null;
         let currentScope = "account";   // 文件可见范围：account=账号级 / session=会话级
         let sessions = [];
+        let sessionCache = {};   // session_id -> 消息数组（前端缓存，切走再回来不重新加载）
         let userFiles = [];
 
         // ====== 工具 ======
@@ -570,12 +582,30 @@
             return false;
         }
 
-        function enterApp(username) {
+        async function enterApp(username) {
             $('authPage').style.display = 'none';
             $('appPage').classList.add('active');
             $('userInfo').textContent = '👤 ' + username;
             $('footerUser').textContent = username;
+            // 登录后加载会话列表（延迟创建，不自动建新会话）
+            await loadSessions();
             newChat();
+        }
+
+        async function loadSessions() {
+            try {
+                const data = await api('/api/sessions');
+                if (data.code === 0) {
+                    sessions = data.data.map(s => ({
+                        id: s.session_id,
+                        title: s.session_name || '新会话',
+                        updated_at: s.updated_at
+                    }));
+                    renderSessions();
+                }
+            } catch (e) {
+                console.error('加载会话列表失败', e);
+            }
         }
 
         function logout() {
@@ -589,26 +619,108 @@
 
         // ====== 会话管理 ======
         function newChat() {
-            currentSessionId = 'session-' + Date.now();
-            sessions.unshift({ id: currentSessionId, title: '新会话' });
+            // 延迟创建：不发消息不真创建，session_id 用 default
+            currentSessionId = null;
             $('chatTitle').textContent = '新会话';
             renderSessions();
             clearMessages();
         }
 
-        function switchSession(id) {
+        async function switchSession(id) {
             currentSessionId = id;
-            $('chatTitle').textContent = sessions.find(s => s.id === id)?.title || '会话';
+            const s = sessions.find(x => x.id === id);
+            $('chatTitle').textContent = s ? s.title : '会话';
             renderSessions();
-            // 目前没有后端历史会话接口，先清空（后续对接）
-            clearMessages();
+            // 有缓存直接用，没有则加载历史
+            if (sessionCache[id]) {
+                renderMessages(sessionCache[id]);
+            } else {
+                await loadHistory(id);
+            }
+        }
+
+        async function loadHistory(sessionId) {
+            try {
+                const data = await api(`/api/sessions/${sessionId}/history`);
+                if (data.code === 0) {
+                    const msgs = data.data.messages;
+                    sessionCache[sessionId] = msgs;   // 缓存
+                    renderMessages(msgs);
+                } else {
+                    addMessage('error', data.message);
+                }
+            } catch (e) {
+                addMessage('error', '加载历史失败：' + e.message);
+            }
+        }
+
+        function renderMessages(msgs) {
+            $('messages').innerHTML = '';   // 清空
+            msgs.forEach(m => {
+                if (m.role === 'user' || m.role === 'assistant') {
+                    addMessage(m.role === 'user' ? 'user' : 'assistant', m.content);
+                }
+            });
         }
 
         function renderSessions() {
             const box = $('sessionList');
             box.innerHTML = sessions.map(s =>
-                `<div class="session-item ${s.id === currentSessionId ? 'active' : ''}" onclick="switchSession('${s.id}')">${s.title}</div>`
+                `<div class="session-item ${s.id === currentSessionId ? 'active' : ''}" onclick="switchSession('${s.id}')">
+                    <span class="session-title">${s.title}</span>
+                    <span class="session-menu" onclick="event.stopPropagation(); showSessionMenu('${s.id}', this)">
+                        <span class="menu-dots">⋯</span>
+                    </span>
+                </div>`
             ).join('');
+        }
+
+        // ====== 会话菜单（重命名/删除） ======
+        function showSessionMenu(sessionId, el) {
+            const action = prompt('输入新会话名称，或留空删除会话：\n（输入名称=重命名，点取消=关闭）');
+            if (action === null) return;   // 用户取消
+            if (action.trim() === '') {
+                // 空 → 删除
+                if (confirm('确定删除该会话吗？')) deleteSession(sessionId);
+            } else {
+                renameSession(sessionId, action.trim());
+            }
+        }
+
+        async function renameSession(sessionId, newName) {
+            try {
+                const data = await api(`/api/sessions/${sessionId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_name: newName })
+                });
+                if (data.code === 0) {
+                    const s = sessions.find(x => x.id === sessionId);
+                    if (s) s.title = newName;
+                    if (currentSessionId === sessionId) $('chatTitle').textContent = newName;
+                    renderSessions();
+                } else {
+                    alert(data.message);
+                }
+            } catch (e) {
+                alert('重命名失败：' + e.message);
+            }
+        }
+
+        async function deleteSession(sessionId) {
+            try {
+                const data = await api(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+                if (data.code === 0) {
+                    sessions = sessions.filter(s => s.id !== sessionId);
+                    delete sessionCache[sessionId];
+                    if (currentSessionId === sessionId) newChat();
+                    renderSessions();
+                } else {
+                    alert(data.message);
+                }
+            } catch (e) {
+                alert('删除失败：' + e.message);
+            }
         }
 
         // ====== 模式切换 ======
@@ -729,18 +841,29 @@
                         body: JSON.stringify({
                             question,
                             mode: currentMode,
-                            session_id: currentSessionId
+                            session_id: currentSessionId || "default"
                         })
                     });
                     removeLoading();
                     if (data.code === 0) {
                         addMessage('assistant', data.data.answer);
-                        // 更新会话标题为问题前20字
-                        if ($('chatTitle').textContent === '新会话') {
-                            $('chatTitle').textContent = question.slice(0, 20) + (question.length > 20 ? '...' : '');
-                            const s = sessions.find(s => s.id === currentSessionId);
-                            if (s) s.title = $('chatTitle').textContent;
-                            renderSessions();
+
+                        // 延迟创建：后端返回新 session_id 时保存
+                        if (data.data.session_id) {
+                            const isNew = !currentSessionId || currentSessionId !== data.data.session_id;
+                            currentSessionId = data.data.session_id;
+                            // 更新缓存
+                            if (!sessionCache[currentSessionId]) sessionCache[currentSessionId] = [];
+                            sessionCache[currentSessionId].push({ role: 'user', content: question });
+                            sessionCache[currentSessionId].push({ role: 'assistant', content: data.data.answer });
+
+                            if (isNew) {
+                                // 新会话：加入列表，用问题前20字做标题
+                                const title = question.slice(0, 20) + (question.length > 20 ? '...' : '');
+                                $('chatTitle').textContent = title;
+                                sessions.unshift({ id: currentSessionId, title });
+                                renderSessions();
+                            }
                         }
                     } else {
                         addMessage('error', '回复失败：' + data.message);

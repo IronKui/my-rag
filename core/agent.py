@@ -64,6 +64,20 @@ def agent_chat(question:str, mode:str="default", session_id:str="default", user_
     )
     return res['messages'][-1].content
 
+
+def get_chat_history(session_id: str, user_id: str) -> list:
+    """读取某会话的历史消息，返回 [{role, content}]"""
+    agent = get_agent("default")
+    config = {"configurable": {"thread_id": f"{user_id}:{session_id}"}}
+    state = agent.get_state(config)
+    msgs = state.values.get("messages", [])
+    history = []
+    for m in msgs:
+        if m.type in ("human", "ai"):
+            role = "user" if m.type == "human" else "assistant"
+            history.append({"role": role, "content": str(m.content)})
+    return history
+
 if __name__ == "__main__":
     while True:
         user_input = input("\n你：").strip()
