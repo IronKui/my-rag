@@ -27,9 +27,10 @@ app.add_middleware(
     allow_headers=["*"],  # 允许所有请求头
 )
 os.makedirs("uploads", exist_ok=True)
+
 @app.post("/api/chat",response_model=ChatResponse)
-async def chat(data:ChatRequest):
-    response = agent_chat(data.question, data.mode, data.session_id,data.user_id)
+async def chat(data:ChatRequest, user_uuid: str = Depends(get_current_user)):
+    response = agent_chat(data.question, data.mode, data.session_id,user_uuid)
     return {
         "code": 0,
         "message": "成功",
@@ -37,12 +38,13 @@ async def chat(data:ChatRequest):
     }
 
 @app.post("/api/upload")
-async def upload(file:UploadFile,session_id:str = Form("default"), user_id: str = Form("default")):
+async def upload(file:UploadFile, session_id:str = Form("default"), scope:str = Form("account"),
+                 user_uuid: str = Depends(get_current_user)):
     file_path = f"./uploads/{file.filename}"
     with open(file_path,"wb")as f:
         f.write(await file.read())
-    # rag操作
-    chunk_count, status =process_and_store(file_path,user_id)
+    # rag操作（scope: account=账号级共享 / session=会话级）
+    chunk_count, status =process_and_store(file_path, user_uuid, scope, session_id)
 
     if status == "duplicate":
         return {"code": 1, "message": "文件已存在，未重复入库", "data": {"file_name":

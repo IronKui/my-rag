@@ -470,6 +470,10 @@
             <div class="input-area">
                 <div class="file-info" id="fileInfo" style="display:none;">
                     <span class="file-name" id="fileName"></span>
+                    <select id="scopeSelect" onchange="currentScope = this.value" style="padding:4px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                        <option value="account">账号级（所有会话共享）</option>
+                        <option value="session">会话级（仅当前会话）</option>
+                    </select>
                     <button class="cancel-btn" onclick="cancelFile()">✕ 取消</button>
                 </div>
                 <div class="input-box">
@@ -493,6 +497,7 @@
         let currentMode = "default";
         let currentSessionId = null;
         let selectedFile = null;
+        let currentScope = "account";   // 文件可见范围：account=账号级 / session=会话级
         let sessions = [];
         let userFiles = [];
 
@@ -667,9 +672,10 @@
             const formData = new FormData();
             formData.append('file', selectedFile);
             formData.append('session_id', currentSessionId);
-            formData.append('user_id', userUuid || 'default');
+            formData.append('scope', currentScope);   // account=账号级 / session=会话级
             const res = await fetch(BASE_URL + '/api/upload', {
                 method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` },   // token 鉴权
                 body: formData
             });
             return res.json();
@@ -723,8 +729,7 @@
                         body: JSON.stringify({
                             question,
                             mode: currentMode,
-                            session_id: currentSessionId,
-                            user_id: userUuid || 'default'
+                            session_id: currentSessionId
                         })
                     });
                     removeLoading();

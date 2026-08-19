@@ -43,7 +43,7 @@ def get_vectorstore():
 logger = setup_logger(__name__)
 
 # 加载 文档:
-def load_file(filepath,user_id="default"):
+def load_file(filepath,user_id="default", scope="account", session_id="default"):
     """
     加载文档，将文档处理为list字符串列表
     """
@@ -92,7 +92,9 @@ def load_file(filepath,user_id="default"):
         doc.metadata["file_hash"] = file_hash  # 内容哈希
         doc.metadata["upload_time"] = datetime.now().isoformat()  # 上传时间
         doc.metadata["doc_id"] = doc_id  # 文档唯一ID
-        doc.metadata["user_id"] = user_id
+        doc.metadata["user_id"] = user_id  # 所属用户
+        doc.metadata["scope"] = scope  # 可见范围：account（账号级）/ session（会话级）
+        doc.metadata["session_id"] = session_id  # 会话级时限定会话
 
 
     logger.info(f"加载完毕")
@@ -187,36 +189,55 @@ def store_to_vectorstore(chunks,user_id="default"):
         "doc_id": first.metadata["doc_id"],
         "file_hash": first.metadata["file_hash"],
         "upload_time": first.metadata["upload_time"],
+        "scope": first.metadata.get("scope", "account"),
+        "session_id": first.metadata.get("session_id", ""),
         "status": "active"
     })
 
     logger.info(f"文件向量化存入完毕")
     return
 
-def search_knowledge_base(query:str, k: int = 3,user_id ="default") -> list:
+def search_knowledge_base(query:str, k: int = 3,user_id ="default", session_id="default") -> list:
     """
     从向量库中检索与 query 最相关的 k 个文本块
     返回 List[Document]
+
+    过滤规则：
+    - 账号级文件（scope=account）：属于该用户即可检索
+    - 会话级文件（scope=session）：属于该用户且属于当前会话
     """
     vs = get_vectorstore()
-    #先判断在这里有没有vectorstore
+    #过滤条件：user_id 匹配 且（账号级 或 会话级且当前会话）
+    filter_condition = {
+        "$and": [
+            {"user_id": user_id},
+            {"$or": [
+                {"scope": "account"},
+                {"$and": [
+                    {"scope": "session"},
+                    {"session_id": session_id}
+                ]}
+            ]}
+        ]
+    }
+    #先判断该用户是否有内容
     count = vs.get(where={"user_id":user_id})["ids"]
     if not count:
         logger.info(f"用户{user_id}的知识库为空")
         return []
     #检索
     logger.info(f"检索问题：{query[:50]}...")
-    results = vs.similarity_search(query, k=k,filter={"user_id":user_id})
+    results = vs.similarity_search(query, k=k, filter=filter_condition)
     logger.info(f"检索到了{len(results)}个相关的文本块")
 
     return results
 
-def process_and_store(filepath: str,user_id="default") -> int:
+def process_and_store(filepath: str, user_id="default", scope="account", session_id="default") -> int:
   """加载文件 → 切分 → 入库，返回文本块数量"""
-  docs = load_file(filepath,user_id)
+  docs = load_file(filepath, user_id, scope, session_id)
   if docs is None:
       return 0, "duplicate"  # 重复，跳过
   chunks = splitter_documents(docs)
-  store_to_vectorstore(chunks,user_id)
-  return len(chunks),"ok"
+  store_to_vectorstore(chunks, user_id)
+  return len(chunks), "ok"
 

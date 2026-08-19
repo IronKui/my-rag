@@ -1,8 +1,10 @@
 import os
 import uuid
+from dataclasses import dataclass
 
 from langchain.chat_models import init_chat_model
 from langchain_core.tools import tool
+from langchain.tools import ToolRuntime
 from dotenv import load_dotenv
 
 from core.rag import search_knowledge_base
@@ -10,6 +12,13 @@ from core.logger import setup_logger
 
 load_dotenv()
 logger = setup_logger(__name__)
+
+# ========== 运行时上下文（用户与会话信息，invoke 时注入） ==========
+@dataclass
+class Context:
+    """运行时上下文：工具通过 runtime.context 读取当前用户和会话"""
+    user_id: str
+    session_id: str
 
 # ========== DeepSeek LLM ==========
 model = init_chat_model(
@@ -22,108 +31,95 @@ quiz_cache: dict[str, str] = {}
 
 
 
-def make_retrieve_tool(user_id:str):
+@tool
+def retrieve_tool(query: str, runtime: ToolRuntime[Context]) -> str:
     """
-    创建检索工具工厂，调用检索工具时闭包传入user_id
+    从用户已上传的知识库中检索相关内容，用于回答问题。
+    当用户询问知识库中的内容时，请优先调用此工具。
 
     Args:
-        user_id: 用户账号信息
+        query: 用户提出的问题，将用于向量检索
+        runtime: LangGraph 运行时，从 context 读取当前用户和会话
+
+    Returns:
+        检索到的相关文本片段
     """
+    user_id = runtime.context.user_id
+    session_id = runtime.context.session_id
+    logger.info(f"[retrieve_tool] 检索：{query[:50]}...")
+    docs = search_knowledge_base(query, k=3, user_id=user_id, session_id=session_id)
 
-    @tool
-    def retrieve_tool(query: str, ) -> str:
-        """
-        从用户已上传的知识库中检索相关内容，用于回答问题。
-        当用户询问知识库中的内容时，请优先调用此工具。
+    if not docs:
+        return "知识库中未检索到相关内容，请提醒用户先上传文件。"
 
-        Args:
-            query: 用户提出的问题，将用于向量检索
-
-        Returns:
-            检索到的相关文本片段
-        """
-        logger.info(f"[retrieve_tool] 检索：{query[:50]}...")
-        docs = search_knowledge_base(query, k=3,user_id=user_id )
-
-        if not docs:
-            return "知识库中未检索到相关内容，请提醒用户先上传文件。"
-
-        result = "\n\n".join(
-            f"[参考片段{i + 1}]出自《{doc.metadata.get('source', '未知')}》：{doc.page_content}"
-            for i, doc in enumerate(docs)
-        )
-        return result
-    return retrieve_tool
+    result = "\n\n".join(
+        f"[参考片段{i + 1}]出自《{doc.metadata.get('source', '未知')}》：{doc.page_content}"
+        for i, doc in enumerate(docs)
+    )
+    return result
 
 
-def make_quiz_tool(user_id:str) ->str:
+@tool
+def quiz_tool(topic: str = "", runtime: ToolRuntime[Context] = None) -> str:
     """
-    创建出题工具工厂
-
+    根据知识库内容，出一道题目来测试用户掌握程度。
+    用户说"出题""考考我""来道题"时调用此工具。
 
     Args:
-        user_id: 用户账号信息
+        topic: 出题的主题或范围，如果为空则从知识库随机抽取内容出题
+        runtime: LangGraph 运行时，从 context 读取当前用户和会话
+
+    Returns:
+        一道题目（不含答案），附带 question_id 供后续评判使用
     """
+    user_id = runtime.context.user_id
+    session_id = runtime.context.session_id
+    logger.info(f"[quiz_tool] 出题，主题：{topic if topic else '随机'}")
 
-    @tool
-    def quiz_tool(topic: str = "") -> str:
-        """
-        根据知识库内容，出一道题目来测试用户掌握程度。
-        用户说"出题""考考我""来道题"时调用此工具。
+    # 1. 检索知识库相关内容
+    search_query = topic if topic else "关键概念 知识点"
+    docs = search_knowledge_base(search_query, k=3, user_id=user_id, session_id=session_id)
 
-        Args:
-            topic: 出题的主题或范围，如果为空则从知识库随机抽取内容出题
+    if not docs:
+        return "知识库为空，请提醒用户先上传文件后再出题。"
 
-        Returns:
-            一道题目（不含答案），附带 question_id 供后续评判使用
-        """
-        logger.info(f"[quiz_tool] 出题，主题：{topic if topic else '随机'}")
+    reference = "\n".join(doc.page_content for doc in docs)
 
-        # 1. 检索知识库相关内容
-        search_query = topic if topic else "关键概念 知识点"
-        docs = search_knowledge_base(search_query, k=3,user_id=user_id)
+    # 2. 让 大模型 根据检索内容出题（附带标准答案）
+    prompt = f"""你是一名严格的出题老师。请根据以下知识库内容出一道题目，难度适中。
 
-        if not docs:
-            return "知识库为空，请提醒用户先上传文件后再出题。"
+【知识库内容】
+{reference}
 
-        reference = "\n".join(doc.page_content for doc in docs)
+【要求】
+1. 根据上述内容出一道简答题（不是选择题）
+2. 同时给出该题的标准答案（不要告诉用户）
+3. 按以下格式返回（严格按格式）：
 
-        # 2. 让 大模型 根据检索内容出题（附带标准答案）
-        prompt = f"""你是一名严格的出题老师。请根据以下知识库内容出一道题目，难度适中。
+【题目】
+（此处写题目）
 
-    【知识库内容】
-    {reference}
+【标准答案】
+（此处写标准答案）"""
 
-    【要求】
-    1. 根据上述内容出一道简答题（不是选择题）
-    2. 同时给出该题的标准答案（不要告诉用户）
-    3. 按以下格式返回（严格按格式）：
+    response = model.invoke(prompt)
+    content = response.content.strip()
 
-    【题目】
-    （此处写题目）
+    # 3. 解析出题目和标准答案
+    if "【题目】" in content and "【标准答案】" in content:
+        question_part = content.split("【题目】")[1].split("【标准答案】")[0].strip()
+        answer_part = content.split("【标准答案】")[1].strip()
+    else:
+        # 格式不对，兜底
+        question_part = content
+        answer_part = "暂无标准答案"
 
-    【标准答案】
-    （此处写标准答案）"""
+    # 4. 存入缓存，返回题目
+    question_id = str(uuid.uuid4())[:8]
+    quiz_cache[question_id] = answer_part
+    logger.info(f"[quiz_tool] 题目已生成，ID：{question_id}")
 
-        response = model.invoke(prompt)
-        content = response.content.strip()
-
-        # 3. 解析出题目和标准答案
-        if "【题目】" in content and "【标准答案】" in content:
-            question_part = content.split("【题目】")[1].split("【标准答案】")[0].strip()
-            answer_part = content.split("【标准答案】")[1].strip()
-        else:
-            # 格式不对，兜底
-            question_part = content
-            answer_part = "暂无标准答案"
-
-        # 4. 存入缓存，返回题目
-        question_id = str(uuid.uuid4())[:8]
-        quiz_cache[question_id] = answer_part
-        logger.info(f"[quiz_tool] 题目已生成，ID：{question_id}")
-
-        return f"题目ID：{question_id}\n\n{question_part}"
-    return quiz_tool
+    return f"题目ID：{question_id}\n\n{question_part}"
 
 
 @tool
