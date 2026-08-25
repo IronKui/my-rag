@@ -56,6 +56,26 @@ def init_db():
         FOREIGN KEY (user_uuid) REFERENCES users(user_uuid)
     )
     """)
+    #user_files 表（文件生命周期管理，替代 JSON 索引）
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS user_files(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_uuid TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        file_hash TEXT NOT NULL,
+        file_size INTEGER DEFAULT 0,
+        chunk_count INTEGER DEFAULT 0,
+        scope TEXT DEFAULT 'account',
+        session_id TEXT DEFAULT '',
+        status TEXT DEFAULT 'active',
+        created_at TEXT DEFAULT (datetime('now')),
+        deleted_at TEXT,
+        FOREIGN KEY (user_uuid) REFERENCES users(user_uuid)
+    )
+    """)
+    # 索引：按用户+状态查列表，按哈希去重
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_user_files_user ON user_files(user_uuid, status)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_user_files_hash ON user_files(user_uuid, file_hash)")
     conn.commit()
     conn.close()
     print("数据库初始话完毕")
@@ -216,3 +236,88 @@ def get_messages_by_session(user_uuid: str, session_id: str) -> list:
     messages = cur.fetchall()
     conn.close()
     return messages
+
+
+# ========== 文件表操作（企业级文件管理） ==========
+
+def add_user_file(user_uuid: str, filename: str, file_hash: str, file_size: int,
+                  chunk_count: int, scope: str = "account", session_id: str = "") -> int:
+    """新增文件记录，返回文件 id"""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO user_files (user_uuid, filename, file_hash, file_size, chunk_count, scope, session_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (user_uuid, filename, file_hash, file_size, chunk_count, scope, session_id)
+    )
+    conn.commit()
+    file_id = cur.lastrowid
+    conn.close()
+    return file_id
+
+
+def get_user_files(user_uuid: str) -> list:
+    """获取某用户的所有未删除文件"""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, filename, file_hash, file_size, chunk_count, scope, session_id, created_at
+           FROM user_files WHERE user_uuid = ? AND status = 'active' ORDER BY created_at DESC""",
+        (user_uuid,)
+    )
+    files = cur.fetchall()
+    conn.close()
+    return files
+
+
+def get_user_file_by_id(user_uuid: str, file_id: int):
+    """按 id 查文件（校验归属）"""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM user_files WHERE user_uuid = ? AND id = ?",
+        (user_uuid, file_id)
+    )
+    file = cur.fetchone()
+    conn.close()
+    return file
+
+
+def get_file_by_hash(user_uuid: str, file_hash: str):
+    """按哈希查文件（去重判断，替代 JSON 索引）"""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM user_files WHERE user_uuid = ? AND file_hash = ? AND status = 'active'",
+        (user_uuid, file_hash)
+    )
+    file = cur.fetchone()
+    conn.close()
+    return file
+
+
+def get_file_by_source(user_uuid: str, source: str):
+    """按文件名查文件（同名判断，替代 JSON 索引）"""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM user_files WHERE user_uuid = ? AND filename = ? AND status = 'active'",
+        (user_uuid, source)
+    )
+    file = cur.fetchone()
+    conn.close()
+    return file
+
+
+def soft_delete_file(user_uuid: str, file_id: int) -> bool:
+    """软删除文件（标记 status='deleted'），返回是否成功"""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE user_files SET status = 'deleted', deleted_at = datetime('now') WHERE user_uuid = ? AND id = ? AND status = 'active'",
+        (user_uuid, file_id)
+    )
+    conn.commit()
+    success = cur.rowcount > 0
+    conn.close()
+    return success

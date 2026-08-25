@@ -587,8 +587,9 @@
             $('appPage').classList.add('active');
             $('userInfo').textContent = '👤 ' + username;
             $('footerUser').textContent = username;
-            // 登录后加载会话列表（延迟创建，不自动建新会话）
+            // 登录后加载会话列表 + 文件列表
             await loadSessions();
+            loadFiles();
             newChat();
         }
 
@@ -814,8 +815,7 @@
                     removeLoading();
                     if (upRes.code === 0) {
                         addMessage('assistant', `✅ ${upRes.message}（${upRes.data.chunk_count} 个文本块）`);
-                        userFiles.unshift({ name: selectedFile.name });
-                        renderFiles();
+                        loadFiles();   // 刷新文件列表
                     } else if (upRes.code === 1) {
                         addMessage('assistant', `ℹ️ ${upRes.message}`);
                     } else {
@@ -875,12 +875,43 @@
             }
         }
 
-        // ====== 文件列表（前端模拟，后续对接后端） ======
+        // ====== 文件列表（从后端加载） ======
+        async function loadFiles() {
+            try {
+                const data = await api('/api/files');
+                if (data.code === 0) {
+                    userFiles = data.data;
+                    renderFiles();
+                }
+            } catch (e) {
+                console.error('加载文件列表失败', e);
+            }
+        }
+
         function renderFiles() {
             const box = $('fileList');
             box.innerHTML = userFiles.map(f =>
-                `<div class="file-item"><span class="file-icon">📄</span><span class="file-name">${f.name}</span></div>`
+                `<div class="file-item">
+                    <span class="file-icon">📄</span>
+                    <span class="file-name">${f.filename}</span>
+                    <span class="delete-btn" onclick="deleteFile(${f.id})">✕</span>
+                </div>`
             ).join('');
+        }
+
+        async function deleteFile(fileId) {
+            if (!confirm('确定删除该文件吗？删除后无法恢复。')) return;
+            try {
+                const data = await api(`/api/files/${fileId}`, { method: 'DELETE' });
+                if (data.code === 0) {
+                    userFiles = userFiles.filter(f => f.id !== fileId);
+                    renderFiles();
+                } else {
+                    alert(data.message);
+                }
+            } catch (e) {
+                alert('删除失败：' + e.message);
+            }
         }
 
         // ====== 初始化 ======

@@ -1,12 +1,16 @@
 import os
 import uuid
+import logging
 from fastapi import FastAPI,UploadFile,Form
+
+logger = logging.getLogger(__name__)
 from core.agent import agent_chat
 from core.rag import process_and_store
 from schemas import ChatRequest,ChatResponse
 from fastapi.middleware.cors import CORSMiddleware
 from core.auth_service import register,login,get_current_user
-from core.user_repository import create_session, get_sessions_by_user, get_session_by_id, update_session_time, delete_session, save_message, get_messages_by_session, rename_session
+from core.user_repository import create_session, get_sessions_by_user, get_session_by_id, update_session_time, delete_session, save_message, get_messages_by_session, rename_session, get_user_files, get_user_file_by_id, soft_delete_file
+from core.rag import get_vectorstore
 from schemas import RegisterRequest,LoginRequest,RenameRequest
 from contextlib import asynccontextmanager
 from core.user_repository import init_db
@@ -148,3 +152,46 @@ def api_delete_session(session_id: str, user_uuid: str = Depends(get_current_use
         return {"code": 1, "message": "会话不存在或无权限", "data": None}
     delete_session(user_uuid, session_id)
     return {"code": 0, "message": "会话已删除", "data": None}
+
+@app.get("/api/files")
+def api_files(user_uuid: str = Depends(get_current_user)):
+    """获取当前用户的文件列表"""
+    files = get_user_files(user_uuid)
+    return {
+        "code": 0,
+        "message": "成功",
+        "data": [
+            {
+                "id": f["id"],
+                "filename": f["filename"],
+                "file_hash": f["file_hash"],
+                "file_size": f["file_size"],
+                "chunk_count": f["chunk_count"],
+                "scope": f["scope"],
+                "session_id": f["session_id"],
+                "created_at": f["created_at"]
+            }
+            for f in files
+        ]
+    }
+
+@app.delete("/api/files/{file_id}")
+def api_delete_file(file_id: int, user_uuid: str = Depends(get_current_user)):
+    """删除文件：先删向量，再软删记录"""
+    file = get_user_file_by_id(user_uuid, file_id)
+    if not file:
+        return {"code": 404, "message": "文件不存在或无权限", "data": None}
+    if file["status"] == "deleted":
+        return {"code": 400, "message": "文件已删除", "data": None}
+
+    # 1. 从向量库物理删除（按 file_hash 删该文件的所有向量块）
+    try:
+        vs = get_vectorstore()
+        vs.delete(where={"file_hash": file["file_hash"]})
+    except Exception as e:
+        logger.error(f"向量删除失败: {e}")
+        return {"code": 500, "message": "删除失败，请稍后重试", "data": None}
+
+    # 2. 软删文件记录
+    soft_delete_file(user_uuid, file_id)
+    return {"code": 0, "message": "文件已删除", "data": None}

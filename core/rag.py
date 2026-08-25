@@ -9,7 +9,8 @@ from langchain_community.document_loaders import TextLoader, UnstructuredMarkdow
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from core.index_manager import get_file_by_hash, get_file_by_source, auto_rename, add_file_to_index
+from core.index_manager import auto_rename
+from core.user_repository import get_file_by_hash, get_file_by_source, add_user_file
 from core.logger import setup_logger
 
 import threading
@@ -173,7 +174,7 @@ def get_embeddings():
             encode_kwargs={'normalize_embeddings': True}
         )
     return _embeddings
-def store_to_vectorstore(chunks,user_id="default"):
+def store_to_vectorstore(chunks,user_id="default", file_size=0):
     """
     存入向量数据库
     """
@@ -182,17 +183,17 @@ def store_to_vectorstore(chunks,user_id="default"):
     #如果没有向量库就创建一个
     vs = get_vectorstore()
     vs.add_documents(chunks)
-    #更新索引
+    #写入 user_files 表（企业级文件管理，替代 JSON 索引）
     first = chunks[0]
-    add_file_to_index(user_id, first.metadata["file_hash"], {
-        "filename": first.metadata["source"],
-        "doc_id": first.metadata["doc_id"],
-        "file_hash": first.metadata["file_hash"],
-        "upload_time": first.metadata["upload_time"],
-        "scope": first.metadata.get("scope", "account"),
-        "session_id": first.metadata.get("session_id", ""),
-        "status": "active"
-    })
+    add_user_file(
+        user_id,
+        first.metadata["source"],
+        first.metadata["file_hash"],
+        file_size=file_size,
+        chunk_count=len(chunks),
+        scope=first.metadata.get("scope", "account"),
+        session_id=first.metadata.get("session_id", ""),
+    )
 
     logger.info(f"文件向量化存入完毕")
     return
@@ -237,7 +238,8 @@ def process_and_store(filepath: str, user_id="default", scope="account", session
   docs = load_file(filepath, user_id, scope, session_id)
   if docs is None:
       return 0, "duplicate"  # 重复，跳过
+  file_size = os.path.getsize(filepath)  # 真实文件大小
   chunks = splitter_documents(docs)
-  store_to_vectorstore(chunks, user_id)
+  store_to_vectorstore(chunks, user_id, file_size)
   return len(chunks), "ok"
 
