@@ -19,6 +19,9 @@ from fastapi import Depends
 
 #uvicorn app:app --reload
 
+ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.md', '.txt', '.png', '.jpg', '.jpeg'}
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
 @asynccontextmanager
 async def lifespan(app):
     """应用启动时初始化数据库"""
@@ -62,9 +65,23 @@ async def chat(data:ChatRequest, user_uuid: str = Depends(get_current_user)):
 @app.post("/api/upload")
 async def upload(file:UploadFile, session_id:str = Form("default"), scope:str = Form("account"),
                  user_uuid: str = Depends(get_current_user)):
-    file_path = f"./uploads/{file.filename}"
+    # 文件路径安全，剥掉路径，留文件名
+    safe_name = os.path.basename(file.filename)
+
+    # 文件安全，扩展名白名单
+    ext = os.path.splitext(safe_name)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        return {"code":400,"message":f"不支持的文件类型：{ext}"}
+
+    # 文件按全，大小检验
+    content  = await file.read()
+    if len(content)>MAX_FILE_SIZE:
+        return {"code":400,"message":"文件大小不超过50MB限制"}
+
+    # 文件安全。写入磁盘
+    file_path = f"./uploads/{safe_name}"
     with open(file_path,"wb")as f:
-        f.write(await file.read())
+        f.write(content)
     # rag操作（scope: account=账号级共享 / session=会话级）
     chunk_count, status =process_and_store(file_path, user_uuid, scope, session_id)
 
