@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.auth_service import register,login,get_current_user
 from core.user_repository import create_session, get_sessions_by_user, get_session_by_id, update_session_time, delete_session, save_message, get_messages_by_session, rename_session, get_user_files, get_user_file_by_id, soft_delete_file
 from core.rag import get_vectorstore
+from core.cache import clear_user_cache
 from schemas import RegisterRequest,LoginRequest,RenameRequest
 from contextlib import asynccontextmanager
 from core.user_repository import init_db
@@ -194,4 +195,6 @@ def api_delete_file(file_id: int, user_uuid: str = Depends(get_current_user)):
 
     # 2. 软删文件记录
     soft_delete_file(user_uuid, file_id)
+    # 3. 清缓存（知识库变动，避免旧检索结果）
+    clear_user_cache(user_uuid)
     return {"code": 0, "message": "文件已删除", "data": None}

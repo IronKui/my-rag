@@ -12,6 +12,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from core.index_manager import auto_rename
 from core.user_repository import get_file_by_hash, get_file_by_source, add_user_file
 from core.logger import setup_logger
+from core.cache import get_cached_search, set_cached_search, clear_user_cache
 
 import threading
 
@@ -207,6 +208,11 @@ def search_knowledge_base(query:str, k: int = 3,user_id ="default", session_id="
     - 账号级文件（scope=account）：属于该用户即可检索
     - 会话级文件（scope=session）：属于该用户且属于当前会话
     """
+    # 先查缓存（热点检索结果）
+    cached = get_cached_search(user_id, session_id, query, k)
+    if cached is not None:
+        return cached
+
     vs = get_vectorstore()
     #过滤条件：user_id 匹配 且（账号级 或 会话级且当前会话）
     filter_condition = {
@@ -231,6 +237,9 @@ def search_knowledge_base(query:str, k: int = 3,user_id ="default", session_id="
     results = vs.similarity_search(query, k=k, filter=filter_condition)
     logger.info(f"检索到了{len(results)}个相关的文本块")
 
+    # 写入缓存
+    set_cached_search(user_id, session_id, query, k, results)
+
     return results
 
 def process_and_store(filepath: str, user_id="default", scope="account", session_id="default") -> int:
@@ -241,5 +250,6 @@ def process_and_store(filepath: str, user_id="default", scope="account", session
   file_size = os.path.getsize(filepath)  # 真实文件大小
   chunks = splitter_documents(docs)
   store_to_vectorstore(chunks, user_id, file_size)
+  clear_user_cache(user_id)  # 知识库变动，清缓存避免旧数据
   return len(chunks), "ok"
 

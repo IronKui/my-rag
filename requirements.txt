@@ -9,6 +9,7 @@ langchain-community
 langchain-openai
 langchain-chroma
 langgraph
+langgraph-checkpoint-sqlite
 rich
 
 # 数据校验
@@ -16,7 +17,7 @@ pydantic
 
 # 向量数据库
 chromadb
-langchain-chroma
+
 # Embedding模型
 sentence-transformers
 
@@ -26,6 +27,14 @@ python-docx
 
 # 环境变量
 python-dotenv
+
+# 账号系统（密码哈希 + JWT）
+passlib
+bcrypt==3.2.0
+pyjwt
+
+# 缓存
+redis
 
 # OCR（图片识别）
 pytesseract
