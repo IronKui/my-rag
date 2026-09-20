@@ -72,11 +72,27 @@ backend/
 
 ### 环境要求
 
-- Python 3.10+
+- **Python 3.10+**（需自行安装，[下载地址](https://www.python.org/downloads/)）
 - Redis（可选，不装则缓存功能自动禁用）
 - 约 100MB 磁盘空间（Embedding 模型）
 
-### 1. 安装依赖
+### 1. 准备 Python 环境并安装依赖
+
+**方式一：venv（推荐，Python 自带，无需额外安装）**
+
+```bash
+# 创建虚拟环境
+python -m venv venv
+
+# 激活环境
+venv\Scripts\activate          # Windows
+source venv/bin/activate       # Linux / macOS
+
+# 安装依赖
+pip install -r requirements.txt
+```
+
+**方式二：conda（需先安装 [Anaconda](https://www.anaconda.com/) / [Miniconda](https://docs.conda.io/en/latest/miniconda.html)）**
 
 ```bash
 conda create -n rag python=3.11
@@ -89,7 +105,8 @@ pip install -r requirements.txt
 复制 `.env.example` 为 `.env`，填入你的配置：
 
 ```bash
-cp .env.example .env
+cp .env.example .env        # Linux / macOS
+copy .env.example .env      # Windows
 ```
 
 `.env` 内容说明：
@@ -188,7 +205,6 @@ redis-server
 ## 📚 项目文档
 
 - `项目说明.md` — 完整需求与架构设计
-- `方案/` — 各模块技术方案（记忆持久化、账号系统、文件管理等）
 
 ## 🗺 开发规划
 
